@@ -27,7 +27,10 @@ impl ToolVersionList {
         for (tvr, opts) in &mut self.requests {
             match tvr.resolve(plugin.as_ref(), opts.clone(), latest_versions) {
                 Ok(v) => self.versions.push(v),
-                Err(err) => warn!("failed to resolve tool version: {:#}", err),
+                Err(err) => {
+                    let source = self.source.to_string();
+                    warn!("failed to resolve version of {plugin} from {source}: {err:#}");
+                }
             }
         }
     }

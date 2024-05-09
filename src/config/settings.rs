@@ -124,7 +124,7 @@ pub struct Settings {
     #[config(env = "CI", default = false)]
     pub ci: bool,
     #[config(env = "MISE_CD")]
-    pub cd: Option<String>,
+    pub cd: Option<PathBuf>,
     #[config(env = "MISE_DEBUG", default = false)]
     pub debug: bool,
     #[config(env = "MISE_ENV_FILE")]
@@ -197,21 +197,31 @@ impl Settings {
         if let Some(settings) = SETTINGS.read().unwrap().as_ref() {
             return Ok(settings.clone());
         }
+
+        // Initial pass to obtain cd option
         let mut sb = Self::builder()
             .preloaded(CLI_SETTINGS.lock().unwrap().clone().unwrap_or_default())
             .env();
-        for file in Self::all_settings_files() {
-            sb = sb.preloaded(file);
-        }
-        let mut settings = sb.preloaded(DEFAULT_SETTINGS.clone()).load()?;
-        if let Some(cd) = &settings.cd {
+
+        let mut settings = sb.load()?;
+        if let Some(mut cd) = settings.cd {
             static ORIG_PATH: Lazy<std::io::Result<PathBuf>> = Lazy::new(env::current_dir);
-            let mut cd = PathBuf::from(cd);
             if cd.is_relative() {
                 cd = ORIG_PATH.as_ref()?.join(cd);
             }
             env::set_current_dir(cd)?;
         }
+
+        // Reload settings after current directory option processed
+        sb = Self::builder()
+            .preloaded(CLI_SETTINGS.lock().unwrap().clone().unwrap_or_default())
+            .env();
+        for file in Self::all_settings_files() {
+            sb = sb.preloaded(file);
+        }
+        sb = sb.preloaded(DEFAULT_SETTINGS.clone());
+
+        settings = sb.load()?;
         if settings.raw {
             settings.jobs = 1;
         }
@@ -262,8 +272,8 @@ impl Settings {
                 s.raw = Some(true);
             }
         }
-        if let Some(cd) = m.get_one::<String>("cd") {
-            s.cd = Some(cd.to_string());
+        if let Some(cd) = m.get_one::<PathBuf>("cd") {
+            s.cd = Some(cd.clone());
         }
         if let Some(true) = m.get_one::<bool>("yes") {
             s.yes = Some(true);

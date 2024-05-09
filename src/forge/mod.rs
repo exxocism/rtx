@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use clap::Command;
 use console::style;
 use eyre::WrapErr;
 use itertools::Itertools;
+use rayon::prelude::*;
 use regex::Regex;
+use strum::IntoEnumIterator;
 use versions::Versioning;
 
 use crate::cli::args::ForgeArg;
@@ -26,21 +29,36 @@ use crate::ui::multi_progress_report::MultiProgressReport;
 use crate::ui::progress_report::SingleReport;
 use crate::{dirs, file};
 
+use self::forge_meta::ForgeMeta;
+
 mod cargo;
+pub mod forge_meta;
 mod go;
 mod npm;
+mod pipx;
+mod ubi;
 
 pub type AForge = Arc<dyn Forge>;
 pub type ForgeMap = BTreeMap<ForgeArg, AForge>;
 pub type ForgeList = Vec<AForge>;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, EnumString, AsRefStr, Ord, PartialOrd)]
+#[derive(
+    Debug, PartialEq, Eq, Hash, Clone, Copy, EnumString, EnumIter, AsRefStr, Ord, PartialOrd,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum ForgeType {
     Asdf,
     Cargo,
     Go,
     Npm,
+    Pipx,
+    Ubi,
+}
+
+impl Display for ForgeType {
+    fn fmt(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        write!(formatter, "{}", format!("{:?}", self).to_lowercase())
+    }
 }
 
 static FORGES: Mutex<Option<ForgeMap>> = Mutex::new(None);
@@ -52,6 +70,7 @@ fn load_forges() -> ForgeMap {
     }
     let mut plugins = CORE_PLUGINS.clone();
     plugins.extend(ExternalPlugin::list().expect("failed to list plugins"));
+    plugins.extend(list_installed_forges().expect("failed to list forges"));
     let settings = Settings::get();
     plugins.retain(|plugin| !settings.disable_tools.contains(plugin.id()));
     let plugins: ForgeMap = plugins
@@ -62,8 +81,31 @@ fn load_forges() -> ForgeMap {
     plugins
 }
 
+fn list_installed_forges() -> eyre::Result<ForgeList> {
+    Ok(file::dir_subdirs(&dirs::INSTALLS)?
+        .into_par_iter()
+        .map(|dir| {
+            let id = ForgeMeta::read(&dir).id;
+            let fa = ForgeArg::from_str(&id).unwrap();
+            match fa.forge_type {
+                ForgeType::Asdf => Arc::new(ExternalPlugin::new(fa.name)) as AForge,
+                ForgeType::Cargo => Arc::new(CargoForge::new(fa.name)) as AForge,
+                ForgeType::Npm => Arc::new(npm::NPMForge::new(fa.name)) as AForge,
+                ForgeType::Go => Arc::new(go::GoForge::new(fa.name)) as AForge,
+                ForgeType::Pipx => Arc::new(pipx::PIPXForge::new(fa.name)) as AForge,
+                ForgeType::Ubi => Arc::new(ubi::UbiForge::new(fa.name)) as AForge,
+            }
+        })
+        .filter(|f| f.fa().forge_type != ForgeType::Asdf)
+        .collect())
+}
+
 pub fn list() -> ForgeList {
     load_forges().values().cloned().collect()
+}
+
+pub fn list_forge_types() -> Vec<ForgeType> {
+    ForgeType::iter().collect()
 }
 
 pub fn get(fa: &ForgeArg) -> AForge {
@@ -77,9 +119,11 @@ pub fn get(fa: &ForgeArg) -> AForge {
             .entry(fa.clone())
             .or_insert_with(|| match fa.forge_type {
                 ForgeType::Asdf => Arc::new(ExternalPlugin::new(name)),
-                ForgeType::Cargo => Arc::new(CargoForge::new(fa.clone())),
-                ForgeType::Npm => Arc::new(npm::NPMForge::new(fa.clone())),
-                ForgeType::Go => Arc::new(go::GoForge::new(fa.clone())),
+                ForgeType::Cargo => Arc::new(CargoForge::new(name)),
+                ForgeType::Npm => Arc::new(npm::NPMForge::new(name)),
+                ForgeType::Go => Arc::new(go::GoForge::new(name)),
+                ForgeType::Pipx => Arc::new(pipx::PIPXForge::new(name)),
+                ForgeType::Ubi => Arc::new(ubi::UbiForge::new(name)),
             })
             .clone()
     }
@@ -104,7 +148,11 @@ pub trait Forge: Debug + Send + Sync {
     fn get_dependencies(&self, _tv: &ToolVersion) -> eyre::Result<Vec<String>> {
         Ok(vec![])
     }
-    fn list_remote_versions(&self) -> eyre::Result<Vec<String>>;
+    fn list_remote_versions(&self) -> eyre::Result<Vec<String>> {
+        self.ensure_dependencies_installed()?;
+        self._list_remote_versions()
+    }
+    fn _list_remote_versions(&self) -> eyre::Result<Vec<String>>;
     fn latest_stable_version(&self) -> eyre::Result<Option<String>> {
         self.latest_version(Some("latest".into()))
     }
@@ -173,6 +221,7 @@ pub trait Forge: Debug + Send + Sync {
             None => self.latest_stable_version(),
         }
     }
+    #[requires(self.is_installed())]
     fn latest_installed_version(&self, query: Option<String>) -> eyre::Result<Option<String>> {
         match query {
             Some(query) => {
@@ -182,6 +231,9 @@ pub trait Forge: Debug + Send + Sync {
             None => {
                 let installed_symlink = self.fa().installs_path.join("latest");
                 if installed_symlink.exists() {
+                    if !installed_symlink.is_symlink() {
+                        return Ok(Some("latest".to_string()));
+                    }
                     let target = installed_symlink.read_link()?;
                     let version = target
                         .file_name()
@@ -209,6 +261,9 @@ pub trait Forge: Debug + Send + Sync {
         true
     }
     fn ensure_installed(&self, _mpr: &MultiProgressReport, _force: bool) -> eyre::Result<()> {
+        Ok(())
+    }
+    fn ensure_dependencies_installed(&self) -> eyre::Result<()> {
         Ok(())
     }
     fn update(&self, _pr: &dyn SingleReport, _git_ref: Option<String>) -> eyre::Result<()> {
@@ -239,8 +294,10 @@ pub trait Forge: Debug + Send + Sync {
     fn execute_external_command(&self, _command: &str, _args: Vec<String>) -> eyre::Result<()> {
         unimplemented!()
     }
+
     #[requires(ctx.tv.forge.forge_type == self.get_type())]
     fn install_version(&self, ctx: InstallContext) -> eyre::Result<()> {
+        ensure!(self.is_installed(), "{} is not installed", self.id());
         let config = Config::get();
         let settings = Settings::try_get()?;
         if self.is_version_installed(&ctx.tv) {
@@ -258,6 +315,9 @@ pub trait Forge: Debug + Send + Sync {
             self.cleanup_install_dirs_on_error(&settings, &ctx.tv);
             return Err(e);
         }
+
+        ForgeMeta::write(&ctx.tv.forge)?;
+
         self.cleanup_install_dirs(&settings, &ctx.tv);
         // attempt to touch all the .tool-version files to trigger updates in hook-env
         let mut touch_dirs = vec![dirs::DATA.to_path_buf()];

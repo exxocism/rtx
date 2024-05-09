@@ -89,10 +89,17 @@ impl RubyPlugin {
     }
     fn update_ruby_build(&self) -> Result<()> {
         let _lock = self.lock_build_tool();
-        if self.ruby_build_path().exists()
-            && self.ruby_build_version()? == self.latest_ruby_build_version()?
-        {
-            return Ok(());
+        if self.ruby_build_path().exists() {
+            let cur = self.ruby_build_version()?;
+            let latest = self.latest_ruby_build_version();
+            match (cur, latest) {
+                // ruby-build is up-to-date
+                (cur, Ok(latest)) if cur == latest => return Ok(()),
+                // ruby-build is not up-to-date
+                (_cur, Ok(_latest)) => {}
+                // error getting latest ruby-build version (usually github rate limit)
+                (_cur, Err(err)) => warn!("failed to get latest ruby-build version: {}", err),
+            }
         }
         debug!(
             "Updating ruby-build in {}",
@@ -324,7 +331,7 @@ impl Forge for RubyPlugin {
     fn fa(&self) -> &ForgeArg {
         &self.core.fa
     }
-    fn list_remote_versions(&self) -> Result<Vec<String>> {
+    fn _list_remote_versions(&self) -> Result<Vec<String>> {
         self.core
             .remote_version_cache
             .get_or_try_init(|| self.fetch_remote_versions())
@@ -350,15 +357,11 @@ impl Forge for RubyPlugin {
         Ok(v)
     }
 
+    #[requires(matches!(ctx.tv.request, ToolVersionRequest::Version { .. } | ToolVersionRequest::Prefix { .. }), "unsupported tool version request type")]
     fn install_version_impl(&self, ctx: &InstallContext) -> Result<()> {
         if let Err(err) = self.update_build_tool() {
             warn!("{err}");
         }
-        assert!(matches!(
-            &ctx.tv.request,
-            ToolVersionRequest::Version { .. }
-        ));
-
         ctx.pr.set_message("running ruby-build".into());
         let config = Config::get();
         self.install_cmd(&config, &ctx.tv, ctx.pr.as_ref())?

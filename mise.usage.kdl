@@ -122,6 +122,22 @@ This modifies the contents of ~/.config/mise/config.toml"
 cmd "asdf" hide=true help="[internal] simulates asdf for plugins that call \"asdf\" internally" {
     arg "[ARGS]..." help="all arguments" var=true
 }
+cmd "backends" help="Manage backends" {
+    alias "b"
+    alias "backend" "backend-list" hide=true
+    cmd "ls" help="List built-in backends" {
+        alias "list"
+        after_long_help r"Examples:
+
+  $ mise backends ls
+  cargo
+  go
+  npm
+  pipx
+  ubi
+"
+    }
+}
 cmd "bin-paths" help="List all the active runtime bin paths"
 cmd "cache" help="Manage the mise cache" {
     long_help r"Manage the mise cache
@@ -144,7 +160,7 @@ cmd "completion" help="Generate shell completions" {
     flag "-s --shell" help="Shell type to generate completions for" hide=true {
         arg "<SHELL_TYPE>"
     }
-    flag "--usage" help="Always use usage for completions.\nCurrently, usage is the default for fish and bash but not zsh since it has a few quirks\nto work out first." {
+    flag "--usage" help="Always use usage for completions.\nCurrently, usage is the default for fish and bash but not zsh since it has a few quirks\nto work out first." hide=true {
         long_help "Always use usage for completions.\nCurrently, usage is the default for fish and bash but not zsh since it has a few quirks\nto work out first.\n\nThis requires the `usage` CLI to be installed.\nhttps://usage.jdx.dev"
     }
     arg "[SHELL]" help="Shell type to generate completions for"
@@ -666,6 +682,8 @@ as will versions only referenced on the command line (`mise exec <PLUGIN>@<VERSI
     rm -rf ~/.local/share/mise/versions/node/20.0.1
 "
     flag "-n --dry-run" help="Do not actually delete anything"
+    flag "--configs" help="Prune only tracked and trusted configuration links that point to non-existent configurations"
+    flag "--tools" help="Prune only unused versions of tools"
     arg "[PLUGIN]..." help="Prune only versions from this plugin(s)" var=true
 }
 cmd "reshim" help="rebuilds the shim farm" {
@@ -906,7 +924,14 @@ cmd "tasks" help="[experimental] Manage tasks" {
     $ mise tasks ls
 "
     flag "--no-header" help="Do not print table header"
+    flag "-x --extended" help="Show all columns"
     flag "--hidden" help="Show hidden tasks"
+    flag "--sort" help="Sort by column. Default is name." {
+        arg "<COLUMN>"
+    }
+    flag "--sort-order" help="Sort order. Default is asc." {
+        arg "<SORT_ORDER>"
+    }
     cmd "deps" help="[experimental] Display a tree visualization of a dependency graph" {
         after_long_help r#"Examples:
 
@@ -948,7 +973,14 @@ tasks will override the global ones if they have the same name."
     $ mise tasks ls
 "
         flag "--no-header" help="Do not print table header"
+        flag "-x --extended" help="Show all columns"
         flag "--hidden" help="Show hidden tasks"
+        flag "--sort" help="Sort by column. Default is name." {
+            arg "<COLUMN>"
+        }
+        flag "--sort-order" help="Sort order. Default is asc." {
+            arg "<SORT_ORDER>"
+        }
     }
     cmd "run" help="[experimental] Run a tasks" {
         alias "r"
@@ -1045,7 +1077,7 @@ cmd "uninstall" help="Removes runtime versions" {
 "
     flag "-a --all" help="Delete all installed versions"
     flag "-n --dry-run" help="Do not actually delete anything"
-    arg "[TOOL@VERSION]..." help="Tool(s) to remove" var=true
+    arg "[INSTALLED_TOOL@VERSION]..." help="Tool(s) to remove" var=true
 }
 cmd "unset" help="Remove environment variable(s) from the config file" {
     long_help r#"Remove environment variable(s) from the config file
@@ -1201,6 +1233,31 @@ case $cur in
     ;;
   *)
     plugins=$(mise plugins --all)
+    for plugin in $plugins; do
+      echo "$plugin@"
+    done
+    ;;
+esac
+"#
+
+complete "installed_tool@version" run=r#"
+cur="{{words[CURRENT]}}"
+case $cur in
+  *@*)
+    tool="$(echo "$cur" | cut -d'@' -f1)"
+    prefix="$(echo "$cur" | cut -d'@' -f2)"
+
+    if [ ! -z "$prefix" ]; then
+      prefix="--prefix $prefix"
+    fi
+    versions=$(mise ls --installed $tool $prefix | awk '{print $2}' | sed '1!G;h;$!d')
+
+    for version in $versions; do
+      echo "$tool@$version"
+    done
+    ;;
+  *)
+    plugins=$(mise plugins --core --user)
     for plugin in $plugins; do
       echo "$plugin@"
     done

@@ -3,7 +3,6 @@ name: docker
 on:
   push:
     tags: ["v*"]
-    branches: ["docker-release"]
   workflow_dispatch:
 
 concurrency:
@@ -23,7 +22,6 @@ jobs:
         flavor:
           - alpine
           - deb
-          - mise
           - rpm
     runs-on: ubuntu-latest
     permissions:
@@ -97,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
@@ -112,6 +112,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
+          context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true

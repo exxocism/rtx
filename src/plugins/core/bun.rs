@@ -101,7 +101,7 @@ impl Forge for BunPlugin {
         &self.core.fa
     }
 
-    fn list_remote_versions(&self) -> Result<Vec<String>> {
+    fn _list_remote_versions(&self) -> Result<Vec<String>> {
         self.core
             .remote_version_cache
             .get_or_try_init(|| self.fetch_remote_versions())
@@ -112,12 +112,8 @@ impl Forge for BunPlugin {
         Ok(vec![".bun-version".into()])
     }
 
+    #[requires(matches!(ctx.tv.request, ToolVersionRequest::Version { .. } | ToolVersionRequest::Prefix { .. }), "unsupported tool version request type")]
     fn install_version_impl(&self, ctx: &InstallContext) -> Result<()> {
-        assert!(matches!(
-            &ctx.tv.request,
-            ToolVersionRequest::Version { .. }
-        ));
-
         let tarball_path = self.download(&ctx.tv, ctx.pr.as_ref())?;
         self.install(ctx, &tarball_path)?;
         self.verify(ctx)?;

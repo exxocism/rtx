@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-rm -rf asdf-plugins
-git clone --depth 1 https://github.com/mise-plugins/registry asdf-plugins
 rm -f src/default_shorthands.rs
 
-asdf_plugins=$(ls asdf-plugins/plugins)
+asdf_plugins=$(ls registry/plugins)
 num_plugins=$(echo "$asdf_plugins" | wc -l | tr -d ' ')
 trusted=()
 
@@ -34,15 +32,13 @@ use std::collections::{HashSet, HashMap};
 pub static DEFAULT_SHORTHANDS: Lazy<HashMap<&'static str, &'static str>> =
     Lazy::new(|| HashMap::from([
 EOF
-count=0
+count=1
 for plugin in $asdf_plugins; do
-  file="asdf-plugins/plugins/$plugin"
+  file="registry/plugins/$plugin"
   repository=$(grep -e '^repository = ' "$file")
   repository="${repository/#repository = /}"
   printf "\033[2K[%03d/%d] %s\r" $((++count)) "$num_plugins" "$repository"
-  if [[ $repository == "https://github.com/mise-plugins/"* ]]; then
-    trusted+=("$plugin")
-  elif grep -qe '^first-party = true' "$file"; then
+  if grep -qe '^first-party = true' "$file"; then
     trusted+=("$plugin")
   fi
   #  if [[ $repository == "https://github.com/"* ]]; then
@@ -77,5 +73,3 @@ echo "]));" >>src/default_shorthands.rs
 #echo "]));" >>src/default_shorthands.rs
 
 rustfmt src/default_shorthands.rs
-
-rm -rf asdf-plugins

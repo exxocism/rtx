@@ -239,7 +239,7 @@ impl Forge for NodePlugin {
         &self.core.fa
     }
 
-    fn list_remote_versions(&self) -> Result<Vec<String>> {
+    fn _list_remote_versions(&self) -> Result<Vec<String>> {
         self.core
             .remote_version_cache
             .get_or_try_init(|| self.fetch_remote_versions())
@@ -280,6 +280,8 @@ impl Forge for NodePlugin {
 
     fn parse_legacy_file(&self, path: &Path) -> Result<String> {
         let body = file::read_to_string(path)?;
+        // strip comments
+        let body = body.split('#').next().unwrap_or_default().to_string();
         // trim "v" prefix
         let body = body.trim().strip_prefix('v').unwrap_or(&body);
         // replace lts/* with lts

@@ -1,3 +1,4 @@
+use std::fs::read_dir;
 use std::path::PathBuf;
 
 use clap::ValueHint;
@@ -5,6 +6,8 @@ use eyre::Result;
 
 use crate::config;
 use crate::config::{config_file, DEFAULT_CONFIG_FILENAMES};
+use crate::dirs::TRUSTED_CONFIGS;
+use crate::file::remove_file;
 
 /// Marks a config file as trusted
 ///
@@ -44,6 +47,17 @@ impl Trust {
             self.trust()
         }
     }
+    pub fn clean() -> Result<()> {
+        if TRUSTED_CONFIGS.is_dir() {
+            for path in read_dir(&*TRUSTED_CONFIGS)? {
+                let path = path?.path();
+                if !path.exists() {
+                    remove_file(&path)?;
+                }
+            }
+        }
+        Ok(())
+    }
     fn untrust(&self) -> Result<()> {
         let path = match &self.config_file {
             Some(filename) => PathBuf::from(filename),
@@ -52,8 +66,8 @@ impl Trust {
                 None => bail!("No trusted config files found."),
             },
         };
-        config_file::untrust(&path)?;
         let path = path.canonicalize()?;
+        config_file::untrust(&path)?;
         info!("untrusted {}", path.display());
         Ok(())
     }
@@ -65,8 +79,8 @@ impl Trust {
                 None => bail!("No untrusted config files found."),
             },
         };
-        config_file::trust(&path)?;
         let path = path.canonicalize()?;
+        config_file::trust(&path)?;
         info!("trusted {}", path.display());
         Ok(())
     }

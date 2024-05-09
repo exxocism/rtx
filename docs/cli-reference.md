@@ -151,6 +151,25 @@ Examples:
     $ mise alias unset node lts-hydrogen
 ```
 
+## `mise backends ls`
+
+**Aliases:** `list`
+
+```text
+List built-in backends
+
+Usage: backends ls
+
+Examples:
+
+  $ mise backends ls
+  cargo
+  go
+  npm
+  pipx
+  ubi
+```
+
 ## `mise bin-paths`
 
 ```text
@@ -173,27 +192,18 @@ Arguments:
           Plugin(s) to clear cache for e.g.: node, python
 ```
 
-## `mise completion [OPTIONS] [SHELL]`
+## `mise completion [SHELL]`
 
 ```text
 Generate shell completions
 
-Usage: completion [OPTIONS] [SHELL]
+Usage: completion [SHELL]
 
 Arguments:
   [SHELL]
           Shell type to generate completions for
 
           [possible values: bash, fish, zsh]
-
-Options:
-      --usage
-          Always use usage for completions.
-          Currently, usage is the default for fish and bash but not zsh since it has a few quirks
-          to work out first.
-
-          This requires the `usage` CLI to be installed.
-          https://usage.jdx.dev
 
 Examples:
 
@@ -875,6 +885,12 @@ Options:
   -n, --dry-run
           Do not actually delete anything
 
+      --configs
+          Prune only tracked and trusted configuration links that point to non-existent configurations
+
+      --tools
+          Prune only unused versions of tools
+
 Examples:
 
     $ mise prune --dry-run
@@ -1316,8 +1332,21 @@ Options:
       --no-header
           Do not print table header
 
+  -x, --extended
+          Show all columns
+
       --hidden
           Show hidden tasks
+
+      --sort <COLUMN>
+          Sort by column. Default is name.
+
+          [possible values: name, alias, description, source]
+
+      --sort-order <SORT_ORDER>
+          Sort order. Default is asc.
+
+          [possible values: asc, desc]
 
 Examples:
 
@@ -1458,17 +1487,17 @@ Examples:
     $ mise trust
 ```
 
-## `mise uninstall [OPTIONS] [TOOL@VERSION]...`
+## `mise uninstall [OPTIONS] [INSTALLED_TOOL@VERSION]...`
 
 **Aliases:** `remove, rm`
 
 ```text
 Removes runtime versions
 
-Usage: uninstall [OPTIONS] [TOOL@VERSION]...
+Usage: uninstall [OPTIONS] [INSTALLED_TOOL@VERSION]...
 
 Arguments:
-  [TOOL@VERSION]...
+  [INSTALLED_TOOL@VERSION]...
           Tool(s) to remove
 
 Options:
